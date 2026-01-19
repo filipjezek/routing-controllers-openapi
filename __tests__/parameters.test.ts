@@ -231,7 +231,9 @@ describe('parameters', () => {
     }
 
     const storage = getMetadataArgsStorage()
-    const testRoute = parseRoutes(storage).find((r) => r.action.method === 'testNoRef')!
+    const testRoute = parseRoutes(storage).find(
+      (r) => r.action.method === 'testNoRef'
+    )!
 
     expect(() => getHeaderParams(testRoute, schemas)).not.toThrow()
     const headers = getHeaderParams(testRoute, schemas)
@@ -258,7 +260,9 @@ describe('parameters', () => {
     }
 
     const storage = getMetadataArgsStorage()
-    const testRoute = parseRoutes(storage).find((r) => r.action.method === 'testExpand')!
+    const testRoute = parseRoutes(storage).find(
+      (r) => r.action.method === 'testExpand'
+    )!
     const testSchemas = validationMetadatasToSchemas({
       classTransformerMetadataStorage: defaultMetadataStorage,
       refPointerPrefix: '#/components/schemas/',
