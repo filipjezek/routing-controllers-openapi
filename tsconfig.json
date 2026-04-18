@@ -1,14 +1,14 @@
 {
   "compilerOptions": {
-    "target": "ES2024",
-    "moduleResolution": "bundler",
+    "target": "esnext",
+    "moduleResolution": "node",
     "module": "commonjs",
     "importHelpers": true,
     "inlineSourceMap": true,
     "listFiles": false,
     "traceResolution": false,
     "pretty": true,
-    "lib": ["ES2024"],
+    "lib": ["ESNext"],
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "esModuleInterop": true,
