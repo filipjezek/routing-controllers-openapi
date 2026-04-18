@@ -32,12 +32,12 @@ export function getFullPath(route: IRoute): string {
  */
 export function getOperation(
   route: IRoute,
-  schemas: { [p: string]: oa.SchemaObject }
+  schemas: { [p: string]: oa.SchemaObject | oa.ReferenceObject }
 ): oa.OperationObject {
   const operation: oa.OperationObject = {
     operationId: getOperationId(route),
     parameters: [
-      ...getHeaderParams(route),
+      ...getHeaderParams(route, schemas),
       ...getPathParams(route),
       ...getQueryParams(route, schemas),
     ],
@@ -52,7 +52,7 @@ export function getOperation(
       ([_, value]) => value && (value.length || Object.keys(value).length)
     )
     .reduce((acc, [key, value]) => {
-      acc[key] = value
+      acc[key as keyof oa.OperationObject] = value
       return acc
     }, {} as unknown as oa.OperationObject)
 
@@ -71,7 +71,7 @@ export function getOperationId(route: IRoute): string {
  */
 export function getPaths(
   routes: IRoute[],
-  schemas: { [p: string]: oa.SchemaObject }
+  schemas: { [p: string]: oa.SchemaObject | oa.ReferenceObject }
 ): oa.PathObject {
   const routePaths = routes.map((route) => ({
     [getFullPath(route)]: {
@@ -86,7 +86,10 @@ export function getPaths(
 /**
  * Return header parameters of given route.
  */
-export function getHeaderParams(route: IRoute): oa.ParameterObject[] {
+export function getHeaderParams(
+  route: IRoute,
+  schemas: { [p: string]: oa.SchemaObject | oa.ReferenceObject }
+): oa.ParameterObject[] {
   const headers: oa.ParameterObject[] = route.params
     .filter((p) => p.type === 'header')
     .map((headerMeta) => {
@@ -100,14 +103,38 @@ export function getHeaderParams(route: IRoute): oa.ParameterObject[] {
     })
 
   const headersMeta = route.params.find((p) => p.type === 'headers')
+
   if (headersMeta) {
-    const schema = getParamSchema(headersMeta) as oa.ReferenceObject
-    headers.push({
-      in: 'header',
-      name: schema.$ref.split('/').pop() || '',
-      required: isRequired(headersMeta, route),
-      schema,
-    })
+    const paramSchema = getParamSchema(headersMeta)
+
+    // if schema has a $ref, check if it should be expanded into individual properties
+    if ('$ref' in paramSchema && paramSchema.$ref) {
+      const paramSchemaName = paramSchema.$ref.split('/').pop() || ''
+      const currentSchema = schemas[paramSchemaName]
+
+      // if the schema exists and has properties, expand them into individual header params
+      if (
+        currentSchema &&
+        oa.isSchemaObject(currentSchema) &&
+        currentSchema.properties
+      ) {
+        for (const [name, schema] of Object.entries(currentSchema.properties)) {
+          headers.push({
+            in: 'header',
+            name,
+            required: currentSchema.required?.includes(name) || false,
+            schema,
+          })
+        }
+      } else {
+        headers.push({
+          in: 'header',
+          name: paramSchemaName,
+          required: isRequired(headersMeta, route),
+          schema: paramSchema,
+        })
+      }
+    }
   }
 
   return headers
@@ -156,7 +183,7 @@ export function getPathParams(route: IRoute): oa.ParameterObject[] {
  */
 export function getQueryParams(
   route: IRoute,
-  schemas: { [p: string]: oa.SchemaObject }
+  schemas: { [p: string]: oa.SchemaObject | oa.ReferenceObject }
 ): oa.ParameterObject[] {
   const queries: oa.ParameterObject[] = route.params
     .filter((p) => p.type === 'query')
@@ -178,18 +205,39 @@ export function getQueryParams(
       const paramSchemaName = paramSchema.$ref.split('/').pop() || ''
       const currentSchema = schemas[paramSchemaName]
 
-      for (const [name, schema] of Object.entries(
-        currentSchema?.properties || {}
-      )) {
-        queries.push({
-          in: 'query',
-          name,
-          required: currentSchema.required?.includes(name) || false,
-          schema,
-        })
+      if (oa.isSchemaObject(currentSchema)) {
+        for (const [name, schema] of Object.entries(
+          currentSchema?.properties || {}
+        )) {
+          queries.push({
+            in: 'query',
+            name,
+            required: currentSchema.required?.includes(name) || false,
+            schema,
+          })
+        }
       }
     })
   return queries
+}
+
+function getNamedParamSchema(
+  param: ParamMetadataArgs
+): oa.SchemaObject | oa.ReferenceObject {
+  const { type } = param
+  if (type === 'file') {
+    return { type: 'string', format: 'binary' }
+  }
+  if (type === 'files') {
+    return {
+      type: 'array',
+      items: {
+        type: 'string',
+        format: 'binary',
+      },
+    }
+  }
+  return getParamSchema(param)
 }
 
 /**
@@ -197,14 +245,19 @@ export function getQueryParams(
  */
 export function getRequestBody(route: IRoute): oa.RequestBodyObject | void {
   const bodyParamMetas = route.params.filter((d) => d.type === 'body-param')
-  const bodyParamsSchema: oa.SchemaObject | null =
-    bodyParamMetas.length > 0
-      ? bodyParamMetas.reduce(
+  const uploadFileMetas = route.params.filter((d) =>
+    ['file', 'files'].includes(d.type)
+  )
+  const namedParamMetas = [...bodyParamMetas, ...uploadFileMetas]
+
+  const namedParamsSchema: oa.SchemaObject | null =
+    namedParamMetas.length > 0
+      ? namedParamMetas.reduce(
           (acc: oa.SchemaObject, d) => ({
             ...acc,
             properties: {
               ...acc.properties,
-              [d.name!]: getParamSchema(d),
+              [d.name!]: getNamedParamSchema(d),
             },
             required: isRequired(d, route)
               ? [...(acc.required || []), d.name!]
@@ -214,27 +267,30 @@ export function getRequestBody(route: IRoute): oa.RequestBodyObject | void {
         )
       : null
 
-  const bodyMeta = route.params.find((d) => d.type === 'body')
+  const contentType =
+    uploadFileMetas.length > 0 ? 'multipart/form-data' : 'application/json'
 
+  const bodyMeta = route.params.find((d) => d.type === 'body')
   if (bodyMeta) {
     const bodySchema = getParamSchema(bodyMeta)
-    const { $ref } =
+    const items =
       'items' in bodySchema && bodySchema.items ? bodySchema.items : bodySchema
+    const $ref = oa.isReferenceObject(items) ? items.$ref : ''
 
     return {
       content: {
-        'application/json': {
-          schema: bodyParamsSchema
-            ? { allOf: [bodySchema, bodyParamsSchema] }
+        [contentType]: {
+          schema: namedParamsSchema
+            ? { allOf: [bodySchema, namedParamsSchema] }
             : bodySchema,
         },
       },
       description: ($ref || '').split('/').pop(),
       required: isRequired(bodyMeta, route),
     }
-  } else if (bodyParamsSchema) {
+  } else if (namedParamsSchema) {
     return {
-      content: { 'application/json': { schema: bodyParamsSchema } },
+      content: { [contentType]: { schema: namedParamsSchema } },
     }
   }
 }
@@ -283,7 +339,7 @@ export function getResponses(route: IRoute): oa.ResponsesObject {
  */
 export function getSpec(
   routes: IRoute[],
-  schemas: { [p: string]: oa.SchemaObject }
+  schemas: { [p: string]: oa.SchemaObject | oa.ReferenceObject }
 ): oa.OpenAPIObject {
   return {
     components: { schemas: {} },
