@@ -151,7 +151,9 @@ export function getPathParams(route: IRoute): oa.ParameterObject[] {
   const tokens = pathToRegexp.parse(path)
 
   return tokens
-    .filter((token) => token && typeof token === 'object') // Omit non-parameter plain string tokens
+    .filter(
+      (token): token is pathToRegexp.Key => !!token && typeof token === 'object'
+    ) // Omit non-parameter plain string tokens
     .map((token: pathToRegexp.Key) => {
       const name = token.name + ''
       const param: oa.ParameterObject = {

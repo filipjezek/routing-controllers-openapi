@@ -1,16 +1,14 @@
 {
   "compilerOptions": {
-    "target": "es6",
-    "moduleResolution": "node",
+    "target": "ES2024",
+    "moduleResolution": "bundler",
     "module": "commonjs",
     "importHelpers": true,
     "inlineSourceMap": true,
     "listFiles": false,
     "traceResolution": false,
     "pretty": true,
-    "lib" : [
-      "es6"
-    ],
+    "lib": ["ES2024"],
     "experimentalDecorators": true,
     "emitDecoratorMetadata": true,
     "esModuleInterop": true,
@@ -22,9 +20,6 @@
     "noUnusedLocals": true,
     "noUnusedParameters": true
   },
-  "include": [
-    "src/**/*",
-    "__tests__/**/*"
-  ],
+  "include": ["src/**/*", "__tests__/**/*"],
   "compileOnSave": false
 }
